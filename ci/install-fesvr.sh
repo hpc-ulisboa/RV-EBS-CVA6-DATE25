@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-VERSION="35d50bc40e59ea1d5566fbd3d9226023821b1bb6"
+VERSION="824ecdf6dc06ad0560001741ef1db861d4ed069f"
 
 cd $ROOT/tmp
 

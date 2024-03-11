@@ -668,6 +668,7 @@ package ariane_pkg;
     fu_t                        fu;
     fu_op                       operation;
     logic [TRANS_ID_BITS-1:0]   trans_id;
+    logic [riscv::VLEN-1:0]     pc;
   } lsu_ctrl_t;
 
   // ---------------
@@ -842,6 +843,7 @@ package ariane_pkg;
     logic [DCACHE_TID_WIDTH-1:0]   data_id;
     logic                          kill_req;
     logic                          tag_valid;
+    logic [riscv::XLEN-1:0]        pc;
   } dcache_req_i_t;
 
   typedef struct packed {

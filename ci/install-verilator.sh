@@ -25,7 +25,7 @@ if [ ! -e "$VERILATOR_INSTALL_DIR/bin/verilator" ]; then
     echo "VERILATOR_PATCH=$VERILATOR_PATCH"
     mkdir -p $VERILATOR_BUILD_DIR
     cd $VERILATOR_BUILD_DIR
-    sudo apt install libfl-dev help2man
+    # sudo apt install libfl-dev help2man
     [ -d .git ] || git clone $VERILATOR_REPO -b $VERILATOR_BRANCH .
     git checkout $VERILATOR_HASH
     if [[ -n "$VERILATOR_PATCH" && -f "$VERILATOR_PATCH" ]] ; then

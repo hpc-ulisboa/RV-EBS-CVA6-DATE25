@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-VERSION="5f76a0d1fa68bb80560cb890405c42041f744e89"
+VERSION="824ecdf6dc06ad0560001741ef1db861d4ed069f"
 
 cd $ROOT/tmp
 
@@ -11,7 +11,7 @@ fi
 
 if [ ! -e "${RISCV}/bin/spike"  ]; then
     echo "Installing Spike"
-    git clone https://github.com/riscv/riscv-isa-sim.git
+    [ -d $ROOT/tmp/riscv-isa-sim ] || git clone https://github.com/riscv/riscv-isa-sim.git
     cd riscv-isa-sim
     git checkout $VERSION
     mkdir -p build

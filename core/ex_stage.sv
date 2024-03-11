@@ -345,6 +345,7 @@ module ex_stage
       .dcache_req_ports_o,
       .dcache_wbuffer_empty_i,
       .dcache_wbuffer_not_ni_i,
+      .pc_i,
       .amo_valid_commit_i,
       .amo_req_o,
       .amo_resp_i,

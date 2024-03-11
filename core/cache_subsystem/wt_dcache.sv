@@ -48,7 +48,9 @@ module wt_dcache
     input  dcache_rtrn_t mem_rtrn_i,
     output logic         mem_data_req_o,
     input  logic         mem_data_ack_i,
-    output dcache_req_t  mem_data_o
+    output dcache_req_t  mem_data_o,
+    input riscv::xlen_t ebs_addr_i,
+    output riscv::xlen_t pc_dcache_miss_perf_o
 );
 
   // miss unit <-> read controllers
@@ -86,6 +88,7 @@ module wt_dcache
   logic         [              NumPorts-1:0]                          miss_replay;
   logic         [              NumPorts-1:0]                          miss_rtrn_vld;
   logic         [        CACHE_ID_WIDTH-1:0]                          miss_rtrn_id;
+  logic         [              NumPorts-1:0][        riscv::XLEN-1:0] miss_pc;
 
   // memory <-> read controllers/miss unit
   logic         [              NumPorts-1:0]                          rd_prio;
@@ -139,6 +142,7 @@ module wt_dcache
       .miss_vld_bits_i(miss_vld_bits_o),
       .miss_size_i    (miss_size),
       .miss_id_i      (miss_id),
+      .miss_pc_i      (miss_pc),
       .miss_replay_o  (miss_replay),
       .miss_rtrn_vld_o(miss_rtrn_vld),
       .miss_rtrn_id_o (miss_rtrn_id),
@@ -161,7 +165,8 @@ module wt_dcache
       .mem_rtrn_i     (mem_rtrn_i),
       .mem_data_req_o (mem_data_req_o),
       .mem_data_ack_i (mem_data_ack_i),
-      .mem_data_o     (mem_data_o)
+      .mem_data_o     (mem_data_o),
+      .pc_dcache_miss_perf_o  (pc_dcache_miss_perf_o)
   );
 
   ///////////////////////////////////////////////////////
@@ -196,6 +201,7 @@ module wt_dcache
           .miss_id_o      (miss_id[k]),
           .miss_replay_i  (miss_replay[k]),
           .miss_rtrn_vld_i(miss_rtrn_vld[k]),
+          .miss_pc_o      (miss_pc[k]),
           // used to detect readout mux collisions
           .wr_cl_vld_i    (wr_cl_vld),
           // cache mem interface
@@ -208,7 +214,8 @@ module wt_dcache
           .rd_data_i      (rd_data),
           .rd_user_i      (rd_user),
           .rd_vld_bits_i  (rd_vld_bits),
-          .rd_hit_oh_i    (rd_hit_oh)
+          .rd_hit_oh_i    (rd_hit_oh),
+          .ebs_addr_i     (ebs_addr_i)
       );
     end else begin
       assign rd_prio[0] = 1'b0;
@@ -261,6 +268,7 @@ module wt_dcache
       .miss_nc_o      (miss_nc[NumPorts-1]),
       .miss_size_o    (miss_size[NumPorts-1]),
       .miss_id_o      (miss_id[NumPorts-1]),
+      .miss_pc_o      (miss_pc[NumPorts-1]),
       .miss_rtrn_vld_i(miss_rtrn_vld[NumPorts-1]),
       .miss_rtrn_id_i (miss_rtrn_id),
       // cache read interface

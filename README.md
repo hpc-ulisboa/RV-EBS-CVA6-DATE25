@@ -1,3 +1,11 @@
+# RVEBS: RISC-V Event-Based Sampling
+
+This repository contains the sources and tests for **RVEBS**, an event-based sampling system compatible with the RISC-V Hardware Performance Monitor specification.
+
+### If you use this, please cite:
+
+>Tiago Rocha, Nuno Neves, Nuno Roma, Pedro Tomás, Leonel Sousa, "RVEBS: Event-Based Sampling on RISC-V", Design, Automation and Test in Europe Conference (DATE'2025), IEEE, Lyon - France
+
 ![Build Status](https://github.com/openhwgroup/cva6/actions/workflows/ci.yml/badge.svg?branch=master)
 
 > **Warning**

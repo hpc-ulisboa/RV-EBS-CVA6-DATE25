@@ -46,6 +46,7 @@ module wt_dcache_missunit
     input logic [NumPorts-1:0][DCACHE_SET_ASSOC-1:0] miss_vld_bits_i,
     input logic [NumPorts-1:0][2:0] miss_size_i,
     input logic [NumPorts-1:0][CACHE_ID_WIDTH-1:0] miss_id_i,  // used as transaction ID
+    input logic [NumPorts-1:0][riscv::XLEN-1:0] miss_pc_i,
     // signals that the request collided with a pending read
     output logic [NumPorts-1:0] miss_replay_o,
     // signals response from memory
@@ -70,7 +71,8 @@ module wt_dcache_missunit
     input dcache_rtrn_t mem_rtrn_i,
     output logic mem_data_req_o,
     input logic mem_data_ack_i,
-    output dcache_req_t mem_data_o
+    output dcache_req_t mem_data_o,
+    output riscv::xlen_t pc_dcache_miss_perf_o
 );
 
   // functions
@@ -218,7 +220,7 @@ module wt_dcache_missunit
   assign mshr_vld_d           = (mshr_allocate) ? 1'b1 : (load_ack) ? 1'b0 : mshr_vld_q;
 
   assign miss_o               = (mshr_allocate) ? ~miss_nc_i[miss_port_idx] : 1'b0;
-
+  assign pc_dcache_miss_perf_o  = miss_pc_i[miss_port_idx];
 
   for (genvar k = 0; k < NumPorts; k++) begin : gen_rdrd_collision
     assign mshr_rdrd_collision[k]   = (mshr_q.paddr[riscv::PLEN-1:DCACHE_OFFSET_WIDTH] == miss_paddr_i[k][riscv::PLEN-1:DCACHE_OFFSET_WIDTH]) && (mshr_vld_q | mshr_vld_q1);
