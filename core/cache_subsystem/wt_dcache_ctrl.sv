@@ -39,6 +39,7 @@ module wt_dcache_ctrl
     output logic [CACHE_ID_WIDTH-1:0] miss_id_o,  // set to constant ID
     input logic miss_replay_i,  // request collided with pending miss - have to replay the request
     input  logic                            miss_rtrn_vld_i, // signals that the miss has been served, asserted in the same cycle as when the data returns from memory
+    output riscv::xlen_t miss_pc_o,
     // used to detect readout mux collisions
     input logic wr_cl_vld_i,
     // cache memory interface
@@ -51,7 +52,8 @@ module wt_dcache_ctrl
     input riscv::xlen_t rd_data_i,
     input logic [DCACHE_USER_WIDTH-1:0] rd_user_i,
     input logic [DCACHE_SET_ASSOC-1:0] rd_vld_bits_i,
-    input logic [DCACHE_SET_ASSOC-1:0] rd_hit_oh_i
+    input logic [DCACHE_SET_ASSOC-1:0] rd_hit_oh_i,
+    input riscv::xlen_t ebs_addr_i
 );
 
   // controller FSM
@@ -74,6 +76,7 @@ module wt_dcache_ctrl
   logic [DCACHE_SET_ASSOC-1:0] vld_data_d, vld_data_q;
   logic save_tag, rd_req_d, rd_req_q, rd_ack_d, rd_ack_q;
   logic [1:0] data_size_d, data_size_q;
+  riscv::xlen_t pc_d, pc_q;
 
   ///////////////////////////////////////////////////////
   // misc
@@ -86,6 +89,7 @@ module wt_dcache_ctrl
   assign address_off_d = (req_port_o.data_gnt) ? req_port_i.address_index[DCACHE_OFFSET_WIDTH-1:0]                  : address_off_q;
   assign id_d = (req_port_o.data_gnt) ? req_port_i.data_id : id_q;
   assign data_size_d = (req_port_o.data_gnt) ? req_port_i.data_size : data_size_q;
+  assign pc_d = (req_port_o.data_gnt) ? req_port_i.pc : pc_q;
   assign rd_tag_o = address_tag_d;
   assign rd_idx_o = address_idx_d;
   assign rd_off_o = address_off_d;
@@ -98,12 +102,13 @@ module wt_dcache_ctrl
   assign miss_vld_bits_o = vld_data_q;
   assign miss_paddr_o = {address_tag_q, address_idx_q, address_off_q};
   assign miss_size_o = (miss_nc_o) ? {1'b0, data_size_q} : 3'b111;
+  assign miss_pc_o = pc_q;
 
   // noncacheable if request goes to I/O space, or if cache is disabled
   assign miss_nc_o = (~cache_en_i) | (~config_pkg::is_inside_cacheable_regions(
       CVA6Cfg,
-      {{{64-DCACHE_TAG_WIDTH-DCACHE_INDEX_WIDTH}{1'b0}}, address_tag_q, {DCACHE_INDEX_WIDTH{1'b0}}}
-  ));
+      {{{64-DCACHE_TAG_WIDTH-DCACHE_INDEX_WIDTH}{1'b0}}, address_tag_q, {DCACHE_INDEX_WIDTH{1'b0}}}))
+    | (config_pkg::range_check(ebs_addr_i, 64'h100, {{{64-DCACHE_TAG_WIDTH-DCACHE_INDEX_WIDTH}{1'b0}}, address_tag_q, {DCACHE_INDEX_WIDTH{1'b0}}}));
 
 
   assign miss_we_o = '0;
@@ -259,6 +264,7 @@ module wt_dcache_ctrl
       id_q          <= '0;
       vld_data_q    <= '0;
       data_size_q   <= '0;
+      pc_q   <= '0;
       rd_req_q      <= '0;
       rd_ack_q      <= '0;
     end else begin
@@ -269,6 +275,7 @@ module wt_dcache_ctrl
       id_q          <= id_d;
       vld_data_q    <= vld_data_d;
       data_size_q   <= data_size_d;
+      pc_q          <= pc_d;
       rd_req_q      <= rd_req_d;
       rd_ack_q      <= rd_ack_d;
     end

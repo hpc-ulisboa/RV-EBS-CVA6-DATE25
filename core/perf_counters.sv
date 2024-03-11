@@ -51,7 +51,17 @@ module perf_counters
     input  logic [NumPorts-1:0][DCACHE_SET_ASSOC-1:0]miss_vld_bits_i,  //For Cache eviction (3ports-LOAD,STORE,PTW)
     input logic i_tlb_flush_i,
     input logic stall_issue_i,  //stall-read operands
-    input logic [31:0] mcountinhibit_i
+    input  logic [63:0] cycle_count_i,
+    input  logic [63:0] instr_count_i,
+    input logic [31:0] mcountinhibit_i,
+    input  logic [riscv::VLEN-1:0] pc_i,
+    output logic ebs_store_req_o,
+    input logic ebs_store_ack_i,
+    output wt_cache_pkg::dcache_req_t ebs_store_data_o,
+    output logic [3:0][4:0] ebs_regfile_addr_o,
+    input logic [3:0][riscv::XLEN-1:0] ebs_regfile_data_i,
+    output riscv::xlen_t ebs_addr_o,
+    input riscv::xlen_t pc_dcache_miss_perf_i
 );
 
   logic [63:0] generic_counter_d[6:1];
@@ -61,19 +71,63 @@ module perf_counters
   logic read_access_exception, update_access_exception;
 
   logic events[6:1];
+  logic [63:0] events_pc_d[8:0], events_pc_q[8:0];
   //internal signal for  MUX select line input
   logic [4:0] mhpmevent_d[6:1];
   logic [4:0] mhpmevent_q[6:1];
 
+  // ----------------------
+  // Perf Event-Based Sampling Internal Signals
+  // ----------------------
+
+  // registers
+  logic [63:0] threshold_d [8:0], threshold_q[8:0];
+  logic [63:0] count_offset_d[8:0], count_offset_q[8:0];
+  logic [63:0] maddr_addr_d, maddr_addr_q, maddr_offset_d, maddr_offset_q;
+  riscv::ebs_sample_cfg_t    ebs_sample_cfg_d, ebs_sample_cfg_q;
+
+  // state-machine control
+  riscv::ebs_state_e ebs_state_d, ebs_state_q;
+  logic [5:0] ebs_sample_index_d, ebs_sample_index_q;
+  logic ebs_sample_trigger;
+
+  // sample data
+  assign ebs_regfile_addr_o = {ebs_sample_cfg_q.reg_addr3, ebs_sample_cfg_q.reg_addr2, ebs_sample_cfg_q.reg_addr1, ebs_sample_cfg_q.reg_addr0};
+
+  logic [63:0] ebs_counter_data[8:0];
+  logic [63:0] ebs_regfile_data[3:0];
+
+  assign ebs_counter_data = {generic_counter_q[6], generic_counter_q[5], generic_counter_q[4], generic_counter_q[3], generic_counter_q[2], generic_counter_q[1], instr_count_i, 64'b0, cycle_count_i};
+  assign ebs_regfile_data = {ebs_regfile_data_i[3], ebs_regfile_data_i[2], ebs_regfile_data_i[1], ebs_regfile_data_i[0]};
+
+  logic [63:0] ebs_pc_sample_d, ebs_pc_sample_q;
+  logic [63:0] ebs_counter_data_sample_d[8:0], ebs_counter_data_sample_q[8:0];
+  logic [63:0] ebs_regfile_data_sample_d[3:0], ebs_regfile_data_sample_q[3:0];
+
+  assign ebs_addr_o = maddr_addr_q;
+
+  // sampled data encoding to cache
+  assign ebs_store_data_o.rtype = wt_cache_pkg::DCACHE_STORE_REQ;
+  assign ebs_store_data_o.tid = 1;
+  assign ebs_store_data_o.nc = 1'b0;
+  assign ebs_store_data_o.way = 'b0;
+  assign ebs_store_data_o.data = (ebs_state_q == riscv::IDLE) ? 64'b0 : (ebs_sample_index_q >= 6'd32) ? ebs_regfile_data_sample_q[ebs_sample_index_q - 6'd32] : (ebs_sample_index_q > 6'd9) ? 64'b0 : (ebs_sample_index_q > 6'd0) ? ebs_counter_data_sample_q[ebs_sample_index_q - 6'd1] : ebs_pc_sample_q;
+  assign ebs_store_data_o.paddr = maddr_addr_q + maddr_offset_q; //TODO_INESC: check maddr csr length
+  assign ebs_store_data_o.user = 'b0;
+  assign ebs_store_data_o.size = 3'b011;
+  assign ebs_store_data_o.amo_op = ariane_pkg::AMO_NONE;
+// ------------------------
+
   //Multiplexer
   always_comb begin : Mux
     events[6:1] = '{default: 0};
+    events_pc_d = events_pc_q;
 
     for (int unsigned i = 1; i <= 6; i++) begin
       case (mhpmevent_q[i])
         5'b00000: events[i] = 0;
         5'b00001: events[i] = l1_icache_miss_i;  //L1 I-Cache misses
-        5'b00010: events[i] = l1_dcache_miss_i;  //L1 D-Cache misses
+        5'b00010: begin events[i] = l1_dcache_miss_i; events_pc_d[i+2] = pc_dcache_miss_perf_i; end  //L1 D-Cache misses
         5'b00011: events[i] = itlb_miss_i;  //ITLB misses
         5'b00100: events[i] = dtlb_miss_i;  //DTLB misses
         5'b00101:
@@ -81,7 +135,7 @@ module perf_counters
         if (commit_ack_i[j]) events[i] = commit_instr_i[j].fu == LOAD;  //Load accesses
         5'b00110:
         for (int unsigned j = 0; j < CVA6Cfg.NrCommitPorts; j++)
-        if (commit_ack_i[j]) events[i] = commit_instr_i[j].fu == STORE;  //Store accesses
+        if (commit_ack_i[j] && (commit_instr_i[j].fu == STORE)) begin events[i] = 1'b1; events_pc_d[i+2] = commit_instr_i[j].pc; end //Store accesses
         5'b00111: events[i] = ex_i.valid;  //Exceptions
         5'b01000: events[i] = eret_i;  //Exception handler returns
         5'b01001:
@@ -127,6 +181,9 @@ module perf_counters
     generic_counter_d = generic_counter_q;
     data_o = 'b0;
     mhpmevent_d = mhpmevent_q;
+    threshold_d = threshold_q;
+    maddr_addr_d = maddr_addr_q;
+    ebs_sample_cfg_d = ebs_sample_cfg_q;
     read_access_exception = 1'b0;
     update_access_exception = 1'b0;
 
@@ -167,6 +224,53 @@ module perf_counters
             riscv::CSR_MHPM_EVENT_7,
             riscv::CSR_MHPM_EVENT_8   :
       data_o = mhpmevent_q[addr_i-riscv::CSR_MHPM_EVENT_3+1];
+      riscv::CSR_MHPM_THRESHOLD_CYC,
+            riscv::CSR_MHPM_THRESHOLD_INSTRET,
+            riscv::CSR_MHPM_THRESHOLD_3,
+            riscv::CSR_MHPM_THRESHOLD_4,
+            riscv::CSR_MHPM_THRESHOLD_5,
+            riscv::CSR_MHPM_THRESHOLD_6,
+            riscv::CSR_MHPM_THRESHOLD_7,
+            riscv::CSR_MHPM_THRESHOLD_8 :begin
+        if (riscv::XLEN == 32)
+          data_o = threshold_q[addr_i-riscv::CSR_MHPM_THRESHOLD_CYC][31:0];
+        else data_o = threshold_q[addr_i-riscv::CSR_MHPM_THRESHOLD_CYC];
+      end
+      riscv::CSR_MHPM_THRESHOLD_CYCH,
+            riscv::CSR_MHPM_THRESHOLD_INSTRETH,
+            riscv::CSR_MHPM_THRESHOLD_3H,
+            riscv::CSR_MHPM_THRESHOLD_4H,
+            riscv::CSR_MHPM_THRESHOLD_5H,
+            riscv::CSR_MHPM_THRESHOLD_6H,
+            riscv::CSR_MHPM_THRESHOLD_7H,
+            riscv::CSR_MHPM_THRESHOLD_8H :begin
+        if (riscv::XLEN == 32)
+          data_o = threshold_q[addr_i-riscv::CSR_MHPM_THRESHOLD_CYCH][63:32];
+        else read_access_exception = 1'b1;
+      end
+      riscv::CSR_HPM_COUNTER_3,
+            riscv::CSR_HPM_COUNTER_4,
+            riscv::CSR_HPM_COUNTER_5,
+            riscv::CSR_HPM_COUNTER_6,
+            riscv::CSR_HPM_COUNTER_7,
+            riscv::CSR_HPM_COUNTER_8  :begin
+        if (riscv::XLEN == 32) data_o = generic_counter_q[addr_i-riscv::CSR_HPM_COUNTER_3+1][31:0];
+        else data_o = generic_counter_q[addr_i-riscv::CSR_HPM_COUNTER_3+1];
+      end
+      riscv::CSR_HPM_COUNTER_3H,
+            riscv::CSR_HPM_COUNTER_4H,
+            riscv::CSR_HPM_COUNTER_5H,
+            riscv::CSR_HPM_COUNTER_6H,
+            riscv::CSR_HPM_COUNTER_7H,
+            riscv::CSR_HPM_COUNTER_8H :begin
+        if (riscv::XLEN == 32)
+          data_o = generic_counter_q[addr_i-riscv::CSR_HPM_COUNTER_3H+1][63:32];
+        else read_access_exception = 1'b1;
+      end
+      riscv::CSR_MHPM_MADDR :
+      data_o = maddr_addr_q;
+      riscv::CSR_MHPM_EBS_CFG :
+      data_o = ebs_sample_cfg_q;
       default: data_o = 'b0;
     endcase
 
@@ -200,9 +304,88 @@ module perf_counters
             riscv::CSR_MHPM_EVENT_7,
             riscv::CSR_MHPM_EVENT_8   :
         mhpmevent_d[addr_i-riscv::CSR_MHPM_EVENT_3+1] = data_i;
+        riscv::CSR_MHPM_THRESHOLD_CYC,
+            riscv::CSR_MHPM_THRESHOLD_INSTRET,
+            riscv::CSR_MHPM_THRESHOLD_3,
+            riscv::CSR_MHPM_THRESHOLD_4,
+            riscv::CSR_MHPM_THRESHOLD_5,
+            riscv::CSR_MHPM_THRESHOLD_6,
+            riscv::CSR_MHPM_THRESHOLD_7,
+            riscv::CSR_MHPM_THRESHOLD_8 :begin
+          if (riscv::XLEN == 32)
+            threshold_d[addr_i-riscv::CSR_MHPM_THRESHOLD_CYC][31:0] = data_i;
+          else threshold_d[addr_i-riscv::CSR_MHPM_THRESHOLD_CYC] = data_i;
+        end
+        riscv::CSR_MHPM_THRESHOLD_CYCH,
+            riscv::CSR_MHPM_THRESHOLD_INSTRETH,
+            riscv::CSR_MHPM_THRESHOLD_3H,
+            riscv::CSR_MHPM_THRESHOLD_4H,
+            riscv::CSR_MHPM_THRESHOLD_5H,
+            riscv::CSR_MHPM_THRESHOLD_6H,
+            riscv::CSR_MHPM_THRESHOLD_7H,
+            riscv::CSR_MHPM_THRESHOLD_8H :begin
+          if (riscv::XLEN == 32)
+            threshold_d[addr_i-riscv::CSR_MHPM_THRESHOLD_CYCH][63:32] = data_i;
+          else update_access_exception = 1'b1;
+        end
+        riscv::CSR_MHPM_MADDR :
+        maddr_addr_d = data_i;
+        riscv::CSR_MHPM_EBS_CFG :
+        ebs_sample_cfg_d = data_i;
         default: update_access_exception = 1'b1;
       endcase
     end
+  end
+
+  // ----------------------
+  // Perf Event-Based Sampling Control
+  // ----------------------
+  always_comb begin: ebs_state
+    ebs_state_d = ebs_state_q;
+
+    case(ebs_state_q)
+      riscv::IDLE: begin
+        ebs_state_d = ebs_sample_trigger ? riscv::SAMPLING : riscv::IDLE;
+      end
+      riscv::SAMPLING: begin
+        ebs_state_d = (((!ebs_store_req_o) || (ebs_store_req_o && ebs_store_ack_i)) && (ebs_sample_index_q == 6'd35)) ? riscv::IDLE : riscv::SAMPLING;
+      end
+    endcase
+  end
+
+  always_comb begin: ebs
+    ebs_sample_trigger = 1'b0;
+    ebs_store_req_o = 1'b0;
+    maddr_offset_d = maddr_offset_q;
+    count_offset_d = count_offset_q;
+    ebs_sample_index_d = ebs_sample_index_q;
+    ebs_pc_sample_d = ebs_pc_sample_q;
+    ebs_counter_data_sample_d = ebs_counter_data_sample_q;
+    ebs_regfile_data_sample_d = ebs_regfile_data_sample_q;
+
+    case(ebs_state_q)
+      riscv::IDLE: begin
+        for(int unsigned i = 0; i <= 8; i++) begin
+          if ((ebs_counter_data[i] >= threshold_q[i] + count_offset_q[i]) && (threshold_q[i] > 64'b0)) begin
+            count_offset_d[i] = ebs_counter_data[i];
+            ebs_pc_sample_d = events_pc_q[i];
+            ebs_counter_data_sample_d = ebs_counter_data;
+            ebs_regfile_data_sample_d = ebs_regfile_data;
+            ebs_sample_trigger = 1'b1;
+          end
+        end
+      end
+      riscv::SAMPLING: begin
+        if ((ebs_sample_cfg_q[ebs_sample_index_q - 6'd1]) || (ebs_sample_index_q == 6'd0)) begin
+          ebs_store_req_o = 1'b1;
+        end
+        if ((!ebs_store_req_o) || (ebs_store_req_o && ebs_store_ack_i)) begin
+          ebs_sample_index_d = (ebs_sample_index_q == 6'd35) ? 6'd0 : (ebs_sample_index_q == 6'd9) ? 6'd32 : ebs_sample_index_q + 1;
+          if (ebs_store_ack_i)
+            maddr_offset_d = maddr_offset_q + 64'd8;
+        end
+      end
+    endcase
   end
 
   //Registers
@@ -210,9 +393,31 @@ module perf_counters
     if (!rst_ni) begin
       generic_counter_q <= '{default: 0};
       mhpmevent_q       <= '{default: 0};
+      threshold_q       <= '{default:0};
+      maddr_addr_q     <= '{default:0};
+      maddr_offset_q     <= '{default:0};
+      count_offset_q    <= '{default:0};
+      ebs_sample_cfg_q      <= '{default:0};
+      ebs_sample_index_q    <= '{default:0};
+      events_pc_q               <= '{default:0};
+      ebs_pc_sample_q               <= '{default:0};
+      ebs_counter_data_sample_q     <= '{default:0};
+      ebs_regfile_data_sample_q     <= '{default:0};
+      ebs_state_q           <= riscv::IDLE;
     end else begin
       generic_counter_q <= generic_counter_d;
       mhpmevent_q       <= mhpmevent_d;
+      threshold_q       <= threshold_d;
+      maddr_addr_q     <= maddr_addr_d;
+      maddr_offset_q   <= maddr_offset_d;
+      count_offset_q    <= count_offset_d;
+      ebs_sample_cfg_q      <= ebs_sample_cfg_d;
+      ebs_sample_index_q    <= ebs_sample_index_d;
+      events_pc_q             <= events_pc_d;
+      ebs_pc_sample_q             <= ebs_pc_sample_d;
+      ebs_counter_data_sample_q   <= ebs_counter_data_sample_d;
+      ebs_regfile_data_sample_q   <= ebs_regfile_data_sample_d;
+      ebs_state_q           <= ebs_state_d;
     end
   end
 

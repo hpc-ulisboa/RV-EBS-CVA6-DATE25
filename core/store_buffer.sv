@@ -41,6 +41,7 @@ module store_buffer
     input  logic [riscv::PLEN-1:0]  paddr_i,         // physical address of store which needs to be placed in the queue
     output [riscv::PLEN-1:0] mem_paddr_o,
     input riscv::xlen_t data_i,  // data which is placed in the queue
+    input riscv::xlen_t pc_i,
     input logic [(riscv::XLEN/8)-1:0] be_i,  // byte enable in
     input logic [1:0] data_size_i,  // type of request we are making (e.g.: bytes to write)
 
@@ -58,6 +59,7 @@ module store_buffer
     logic [(riscv::XLEN/8)-1:0] be;
     logic [1:0] data_size;
     logic valid;  // this entry is valid, we need this for checking if the address offset matches
+    riscv::xlen_t pc;
   }
       speculative_queue_n[DEPTH_SPEC-1:0],
       speculative_queue_q[DEPTH_SPEC-1:0],
@@ -92,6 +94,7 @@ module store_buffer
     if (valid_i) begin
       speculative_queue_n[speculative_write_pointer_q].address = paddr_i;
       speculative_queue_n[speculative_write_pointer_q].data = data_i;
+      speculative_queue_n[speculative_write_pointer_q].pc = pc_i;
       speculative_queue_n[speculative_write_pointer_q].be = be_i;
       speculative_queue_n[speculative_write_pointer_q].data_size = data_size_i;
       speculative_queue_n[speculative_write_pointer_q].valid = 1'b1;
@@ -145,6 +148,7 @@ module store_buffer
                                                                                     ariane_pkg::DCACHE_INDEX_WIDTH-1 :
                                                                                     ariane_pkg::DCACHE_INDEX_WIDTH];
   assign req_port_o.data_wdata = commit_queue_q[commit_read_pointer_q].data;
+  assign req_port_o.pc = commit_queue_q[commit_read_pointer_q].pc;
   assign req_port_o.data_be = commit_queue_q[commit_read_pointer_q].be;
   assign req_port_o.data_size = commit_queue_q[commit_read_pointer_q].data_size;
 

@@ -74,6 +74,11 @@ module wt_l15_adapter
     output logic         dcache_rtrn_vld_o,
     output dcache_rtrn_t dcache_rtrn_o,
 
+    // ebs
+    input  logic         ebs_data_req_i,
+    output logic         ebs_data_ack_o,
+    input  dcache_req_t  ebs_data_i,
+
     // L15
     output l15_req_t  l15_req_o,
     input  l15_rtrn_t l15_rtrn_i
@@ -86,8 +91,13 @@ module wt_l15_adapter
   dcache_req_t dcache_data;
   logic dcache_data_full, dcache_data_empty;
 
+  dcache_req_t ebs_data;
+  logic ebs_data_full, ebs_data_empty;
+  
   logic [1:0] arb_req, arb_ack;
   logic arb_idx;
+  logic no_l1_req;
+  logic ebs_ack;
 
   // return path
   logic rtrn_fifo_empty, rtrn_fifo_full, rtrn_fifo_pop;
@@ -113,19 +123,20 @@ module wt_l15_adapter
 
   assign icache_data_ack_o = icache_data_req_i & ~icache_data_full;
   assign dcache_data_ack_o = dcache_data_req_i & ~dcache_data_full;
+  assign ebs_data_ack_o = ebs_data_req_i & ~ebs_data_full;
 
   // data mux
-  assign l15_req_o.l15_nc = (arb_idx) ? dcache_data.nc : icache_data.nc;
+  assign l15_req_o.l15_nc = (no_l1_req) ? ebs_data.nc : (arb_idx) ? dcache_data.nc : icache_data.nc;
   // icache fills are either cachelines or 4byte fills, depending on whether they go to the Piton I/O space or not.
-  assign l15_req_o.l15_size = (arb_idx) ? dcache_data.size : (icache_data.nc) ? 3'b010 : 3'b111;
-  assign l15_req_o.l15_threadid = (arb_idx) ? dcache_data.tid : icache_data.tid;
+  assign l15_req_o.l15_size =  (no_l1_req) ? ebs_data.size : (arb_idx) ? dcache_data.size : (icache_data.nc) ? 3'b010 : 3'b111;
+  assign l15_req_o.l15_threadid =  (no_l1_req) ? ebs_data.tid : (arb_idx) ? dcache_data.tid : icache_data.tid;
   assign l15_req_o.l15_prefetch = '0;  // unused in openpiton
   assign l15_req_o.l15_invalidate_cacheline = '0; // unused by Ariane as L1 has no ECC at the moment
   assign l15_req_o.l15_blockstore = '0;  // unused in openpiton
   assign l15_req_o.l15_blockinitstore = '0;  // unused in openpiton
-  assign l15_req_o.l15_l1rplway = (arb_idx) ? dcache_data.way : icache_data.way;
+  assign l15_req_o.l15_l1rplway = (no_l1_req) ? ebs_data.way : (arb_idx) ? dcache_data.way : icache_data.way;
 
-  assign l15_req_o.l15_address = (arb_idx) ? dcache_data.paddr : icache_data.paddr;
+  assign l15_req_o.l15_address =  (no_l1_req) ? ebs_data.paddr : (arb_idx) ? dcache_data.paddr : icache_data.paddr;
 
   assign l15_req_o.l15_data_next_entry      = '0; // unused in Ariane (only used for CAS atomic requests)
   assign l15_req_o.l15_csm_data             = '0; // unused in Ariane (only used for coherence domain restriction features)
@@ -134,9 +145,9 @@ module wt_l15_adapter
 
   // openpiton is big endian
   if (CVA6Cfg.NOCType == config_pkg::NOC_TYPE_L15_BIG_ENDIAN)
-    assign l15_req_o.l15_data = swendian64(dcache_data.data);
+    assign l15_req_o.l15_data = (no_l1_req) ? swendian64(ebs_data.data) : swendian64(dcache_data.data);
   else if (CVA6Cfg.NOCType == config_pkg::NOC_TYPE_L15_LITTLE_ENDIAN)
-    assign l15_req_o.l15_data = dcache_data.data;
+    assign l15_req_o.l15_data = (no_l1_req) ? ebs_data.data : dcache_data.data;
   else $fatal(1, "[wt_l15_adapter] Unsupported NOC type");
 
   // arbiter
@@ -155,39 +166,45 @@ module wt_l15_adapter
   );
 
   assign arb_req           = {~dcache_data_empty, ~icache_data_empty};
-  assign l15_req_o.l15_val = (|arb_req);  // & ~header_ack_q;
+  assign l15_req_o.l15_val = ((|arb_req) || (no_l1_req && ~ebs_data_empty));  // & ~header_ack_q;
+  assign no_l1_req         = (~dcache_data_empty && ~icache_data_empty);
+  assign ebs_ack           = (no_l1_req && ~ebs_data_empty && l15_rtrn_i.l15_ack);
 
   // encode packet type
   always_comb begin : p_req
     l15_req_o.l15_rqtype = L15_LOAD_RQ;
 
-    unique case (arb_idx)
-      0: begin  // icache
-        l15_req_o.l15_rqtype = L15_IMISS_RQ;
-      end
-      1: begin
-        unique case (dcache_data.rtype)
-          DCACHE_STORE_REQ: begin
-            l15_req_o.l15_rqtype = L15_STORE_RQ;
-          end
-          DCACHE_LOAD_REQ: begin
-            l15_req_o.l15_rqtype = L15_LOAD_RQ;
-          end
-          DCACHE_ATOMIC_REQ: begin
-            l15_req_o.l15_rqtype = L15_ATOMIC_RQ;
-          end
-          // DCACHE_INT_REQ: begin
-          //     //TODO interrupt requests
-          // end
-          default: begin
-            ;
-          end
-        endcase  // dcache_data.rtype
-      end
-      default: begin
-        ;
-      end
-    endcase
+    if (no_l1_req) begin
+      l15_req_o.l15_rqtype = L15_STORE_RQ;
+    end else begin
+      unique case (arb_idx)
+        0: begin  // icache
+          l15_req_o.l15_rqtype = L15_IMISS_RQ;
+        end
+        1: begin
+          unique case (dcache_data.rtype)
+            DCACHE_STORE_REQ: begin
+              l15_req_o.l15_rqtype = L15_STORE_RQ;
+            end
+            DCACHE_LOAD_REQ: begin
+              l15_req_o.l15_rqtype = L15_LOAD_RQ;
+            end
+            DCACHE_ATOMIC_REQ: begin
+              l15_req_o.l15_rqtype = L15_ATOMIC_RQ;
+            end
+            // DCACHE_INT_REQ: begin
+            //     //TODO interrupt requests
+            // end
+            default: begin
+              ;
+            end
+          endcase  // dcache_data.rtype
+        end
+        default: begin
+          ;
+        end
+      endcase
+    end
   end  // p_req
 
   fifo_v2 #(
@@ -224,6 +241,24 @@ module wt_l15_adapter
       .push_i     (dcache_data_ack_o),
       .data_o     (dcache_data),
       .pop_i      (arb_ack[1])
+  );
+
+  fifo_v2 #(
+      .dtype(dcache_req_t),
+      .DEPTH(ADAPTER_REQ_FIFO_DEPTH)
+  ) i_ebs_data_fifo (
+      .clk_i      (clk_i),
+      .rst_ni     (rst_ni),
+      .flush_i    (1'b0),
+      .testmode_i (1'b0),
+      .full_o     (ebs_data_full),
+      .empty_o    (ebs_data_empty),
+      .alm_full_o (),
+      .alm_empty_o(),
+      .data_i     (ebs_data_i),
+      .push_i     (ebs_data_ack_o),
+      .data_o     (ebs_data),
+      .pop_i      (ebs_ack)
   );
 
   ///////////////////////////////////////////////////////

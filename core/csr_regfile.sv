@@ -95,7 +95,9 @@ module csr_regfile
     // PMPs
     output riscv::pmpcfg_t [15:0] pmpcfg_o,  // PMP configuration containing pmpcfg for max 16 PMPs
     output logic [15:0][riscv::PLEN-3:0] pmpaddr_o,  // PMP addresses
-    output logic [31:0] mcountinhibit_o
+    output logic [31:0] mcountinhibit_o,
+    output logic [63:0] cycle_count_o,
+    output logic [63:0] instret_count_o
 );
   // internal signal to keep track of access exceptions
   logic read_access_exception, update_access_exception, privilege_violation;
@@ -178,6 +180,8 @@ module csr_regfile
   assign csr_addr = riscv::csr_t'(csr_addr_i);
   assign fs_o = mstatus_q.fs;
   assign vs_o = mstatus_q.vs;
+  assign cycle_count_o = cycle_q;
+  assign instret_count_o = instret_q;
   // ----------------
   // CSR Read logic
   // ----------------
@@ -477,6 +481,81 @@ module csr_regfile
                 riscv::CSR_HPM_COUNTER_31H :
         if (riscv::XLEN == 32) csr_rdata = perf_data_i;
         else read_access_exception = 1'b1;
+
+        riscv::CSR_MHPM_THRESHOLD_CYC,
+                riscv::CSR_MHPM_THRESHOLD_INSTRET,
+                riscv::CSR_MHPM_THRESHOLD_3,
+                riscv::CSR_MHPM_THRESHOLD_4,
+                riscv::CSR_MHPM_THRESHOLD_5,
+                riscv::CSR_MHPM_THRESHOLD_6,
+                riscv::CSR_MHPM_THRESHOLD_7,
+                riscv::CSR_MHPM_THRESHOLD_8,
+                riscv::CSR_MHPM_THRESHOLD_9,
+                riscv::CSR_MHPM_THRESHOLD_10,
+                riscv::CSR_MHPM_THRESHOLD_11,
+                riscv::CSR_MHPM_THRESHOLD_12,
+                riscv::CSR_MHPM_THRESHOLD_13,
+                riscv::CSR_MHPM_THRESHOLD_14,
+                riscv::CSR_MHPM_THRESHOLD_15,
+                riscv::CSR_MHPM_THRESHOLD_16,
+                riscv::CSR_MHPM_THRESHOLD_17,
+                riscv::CSR_MHPM_THRESHOLD_18,
+                riscv::CSR_MHPM_THRESHOLD_19,
+                riscv::CSR_MHPM_THRESHOLD_20,
+                riscv::CSR_MHPM_THRESHOLD_21,
+                riscv::CSR_MHPM_THRESHOLD_22,
+                riscv::CSR_MHPM_THRESHOLD_23,
+                riscv::CSR_MHPM_THRESHOLD_24,
+                riscv::CSR_MHPM_THRESHOLD_25,
+                riscv::CSR_MHPM_THRESHOLD_26,
+                riscv::CSR_MHPM_THRESHOLD_27,
+                riscv::CSR_MHPM_THRESHOLD_28,
+                riscv::CSR_MHPM_THRESHOLD_29,
+                riscv::CSR_MHPM_THRESHOLD_30,
+                riscv::CSR_MHPM_THRESHOLD_31 :  begin
+          csr_rdata = perf_data_i;
+        end
+
+        riscv::CSR_MHPM_THRESHOLD_CYCH,
+                riscv::CSR_MHPM_THRESHOLD_INSTRETH,
+                riscv::CSR_MHPM_THRESHOLD_3H,
+                riscv::CSR_MHPM_THRESHOLD_4H,
+                riscv::CSR_MHPM_THRESHOLD_5H,
+                riscv::CSR_MHPM_THRESHOLD_6H,
+                riscv::CSR_MHPM_THRESHOLD_7H,
+                riscv::CSR_MHPM_THRESHOLD_8H,
+                riscv::CSR_MHPM_THRESHOLD_9H,
+                riscv::CSR_MHPM_THRESHOLD_10H,
+                riscv::CSR_MHPM_THRESHOLD_11H,
+                riscv::CSR_MHPM_THRESHOLD_12H,
+                riscv::CSR_MHPM_THRESHOLD_13H,
+                riscv::CSR_MHPM_THRESHOLD_14H,
+                riscv::CSR_MHPM_THRESHOLD_15H,
+                riscv::CSR_MHPM_THRESHOLD_16H,
+                riscv::CSR_MHPM_THRESHOLD_17H,
+                riscv::CSR_MHPM_THRESHOLD_18H,
+                riscv::CSR_MHPM_THRESHOLD_19H,
+                riscv::CSR_MHPM_THRESHOLD_20H,
+                riscv::CSR_MHPM_THRESHOLD_21H,
+                riscv::CSR_MHPM_THRESHOLD_22H,
+                riscv::CSR_MHPM_THRESHOLD_23H,
+                riscv::CSR_MHPM_THRESHOLD_24H,
+                riscv::CSR_MHPM_THRESHOLD_25H,
+                riscv::CSR_MHPM_THRESHOLD_26H,
+                riscv::CSR_MHPM_THRESHOLD_27H,
+                riscv::CSR_MHPM_THRESHOLD_28H,
+                riscv::CSR_MHPM_THRESHOLD_29H,
+                riscv::CSR_MHPM_THRESHOLD_30H,
+                riscv::CSR_MHPM_THRESHOLD_31H : begin
+          if (riscv::XLEN == 32) csr_rdata = perf_data_i;
+          else read_access_exception = 1'b1;
+        end
+
+        riscv::CSR_MHPM_MADDR :
+        csr_rdata = perf_data_i;
+
+        riscv::CSR_MHPM_EBS_CFG :
+        csr_rdata = perf_data_i;
 
         // custom (non RISC-V) cache control
         riscv::CSR_DCACHE: csr_rdata = dcache_q;
@@ -934,6 +1013,87 @@ module csr_regfile
           perf_we_o = 1'b1;
           if (riscv::XLEN == 32) perf_data_o = csr_wdata;
           else update_access_exception = 1'b1;
+        end
+
+        riscv::CSR_MHPM_THRESHOLD_CYC,
+                riscv::CSR_MHPM_THRESHOLD_INSTRET,
+                riscv::CSR_MHPM_THRESHOLD_3,
+                riscv::CSR_MHPM_THRESHOLD_4,
+                riscv::CSR_MHPM_THRESHOLD_5,
+                riscv::CSR_MHPM_THRESHOLD_6,
+                riscv::CSR_MHPM_THRESHOLD_7,
+                riscv::CSR_MHPM_THRESHOLD_8,
+                riscv::CSR_MHPM_THRESHOLD_9,
+                riscv::CSR_MHPM_THRESHOLD_10,
+                riscv::CSR_MHPM_THRESHOLD_11,
+                riscv::CSR_MHPM_THRESHOLD_12,
+                riscv::CSR_MHPM_THRESHOLD_13,
+                riscv::CSR_MHPM_THRESHOLD_14,
+                riscv::CSR_MHPM_THRESHOLD_15,
+                riscv::CSR_MHPM_THRESHOLD_16,
+                riscv::CSR_MHPM_THRESHOLD_17,
+                riscv::CSR_MHPM_THRESHOLD_18,
+                riscv::CSR_MHPM_THRESHOLD_19,
+                riscv::CSR_MHPM_THRESHOLD_20,
+                riscv::CSR_MHPM_THRESHOLD_21,
+                riscv::CSR_MHPM_THRESHOLD_22,
+                riscv::CSR_MHPM_THRESHOLD_23,
+                riscv::CSR_MHPM_THRESHOLD_24,
+                riscv::CSR_MHPM_THRESHOLD_25,
+                riscv::CSR_MHPM_THRESHOLD_26,
+                riscv::CSR_MHPM_THRESHOLD_27,
+                riscv::CSR_MHPM_THRESHOLD_28,
+                riscv::CSR_MHPM_THRESHOLD_29,
+                riscv::CSR_MHPM_THRESHOLD_30,
+                riscv::CSR_MHPM_THRESHOLD_31 :  begin
+          perf_we_o = 1'b1;
+          perf_data_o = csr_wdata;
+        end
+
+        riscv::CSR_MHPM_THRESHOLD_CYCH,
+                riscv::CSR_MHPM_THRESHOLD_INSTRETH,
+                riscv::CSR_MHPM_THRESHOLD_3H,
+                riscv::CSR_MHPM_THRESHOLD_4H,
+                riscv::CSR_MHPM_THRESHOLD_5H,
+                riscv::CSR_MHPM_THRESHOLD_6H,
+                riscv::CSR_MHPM_THRESHOLD_7H,
+                riscv::CSR_MHPM_THRESHOLD_8H,
+                riscv::CSR_MHPM_THRESHOLD_9H,
+                riscv::CSR_MHPM_THRESHOLD_10H,
+                riscv::CSR_MHPM_THRESHOLD_11H,
+                riscv::CSR_MHPM_THRESHOLD_12H,
+                riscv::CSR_MHPM_THRESHOLD_13H,
+                riscv::CSR_MHPM_THRESHOLD_14H,
+                riscv::CSR_MHPM_THRESHOLD_15H,
+                riscv::CSR_MHPM_THRESHOLD_16H,
+                riscv::CSR_MHPM_THRESHOLD_17H,
+                riscv::CSR_MHPM_THRESHOLD_18H,
+                riscv::CSR_MHPM_THRESHOLD_19H,
+                riscv::CSR_MHPM_THRESHOLD_20H,
+                riscv::CSR_MHPM_THRESHOLD_21H,
+                riscv::CSR_MHPM_THRESHOLD_22H,
+                riscv::CSR_MHPM_THRESHOLD_23H,
+                riscv::CSR_MHPM_THRESHOLD_24H,
+                riscv::CSR_MHPM_THRESHOLD_25H,
+                riscv::CSR_MHPM_THRESHOLD_26H,
+                riscv::CSR_MHPM_THRESHOLD_27H,
+                riscv::CSR_MHPM_THRESHOLD_28H,
+                riscv::CSR_MHPM_THRESHOLD_29H,
+                riscv::CSR_MHPM_THRESHOLD_30H,
+                riscv::CSR_MHPM_THRESHOLD_31H : begin
+          perf_we_o = 1'b1;
+          if (riscv::XLEN == 32) perf_data_o = csr_wdata;
+          else update_access_exception = 1'b1;
+        end
+
+        riscv::CSR_MHPM_MADDR :  begin
+          perf_we_o = 1'b1;
+          perf_data_o = csr_wdata;
+        end
+
+        riscv::CSR_MHPM_EBS_CFG : begin
+          perf_we_o = 1'b1;
+          perf_data_o = csr_wdata;
         end
 
         riscv::CSR_DCACHE: dcache_d = {{riscv::XLEN - 1{1'b0}}, csr_wdata[0]};  // enable bit

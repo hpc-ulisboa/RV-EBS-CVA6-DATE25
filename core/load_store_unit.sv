@@ -69,6 +69,7 @@ module load_store_unit
     output dcache_req_i_t  [ 2:0]                  dcache_req_ports_o,
     input  logic                                   dcache_wbuffer_empty_i,
     input  logic                                   dcache_wbuffer_not_ni_i,
+    input  logic [riscv::VLEN-1:0]                 pc_i,
     // AMO interface
     output amo_req_t                               amo_req_o,
     input  amo_resp_t                              amo_resp_i,
@@ -221,6 +222,7 @@ module load_store_unit
     assign dcache_req_ports_o[0].data_we       = 1'b0;
     assign dcache_req_ports_o[0].kill_req      = '0;
     assign dcache_req_ports_o[0].tag_valid     = 1'b0;
+    assign dcache_req_ports_o[0].pc            = '0;
 
     assign itlb_miss_o                         = 1'b0;
     assign dtlb_miss_o                         = 1'b0;
@@ -474,7 +476,8 @@ module load_store_unit
     be_i,
     fu_data_i.fu,
     fu_data_i.operation,
-    fu_data_i.trans_id
+    fu_data_i.trans_id,
+    pc_i
   };
 
   lsu_bypass #(

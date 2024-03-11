@@ -71,6 +71,7 @@ module store_unit
   assign instr_is_amo = is_amo(lsu_ctrl_i.operation);
   // keep the data and the byte enable for the second cycle (after address translation)
   riscv::xlen_t st_data_n, st_data_q;
+  riscv::xlen_t st_pc_n, st_pc_q;
   logic [(riscv::XLEN/8)-1:0] st_be_n, st_be_q;
   logic [1:0] st_data_size_n, st_data_size_q;
   amo_t amo_op_d, amo_op_q;
@@ -189,6 +190,7 @@ module store_unit
     // don't shift the data if we are going to perform an AMO as we still need to operate on this data
     st_data_n = (CVA6Cfg.RVA && instr_is_amo) ? lsu_ctrl_i.data[riscv::XLEN-1:0] :
         data_align(lsu_ctrl_i.vaddr[2:0], lsu_ctrl_i.data);
+    st_pc_n = lsu_ctrl_i.pc;
     st_data_size_n = extract_transfer_size(lsu_ctrl_i.operation);
     // save AMO op for next cycle
     if(CVA6Cfg.RVA) begin
@@ -247,6 +249,7 @@ module store_unit
       .paddr_i,
       .mem_paddr_o          (mem_paddr_o),
       .data_i               (st_data_q),
+      .pc_i                 (st_pc_q),
       .be_i                 (st_be_q),
       .data_size_i          (st_data_size_q),
       .req_port_i           (req_port_i),
@@ -284,6 +287,7 @@ module store_unit
       state_q        <= IDLE;
       st_be_q        <= '0;
       st_data_q      <= '0;
+      st_pc_q      <= '0;
       st_data_size_q <= '0;
       trans_id_q     <= '0;
       amo_op_q       <= AMO_NONE;
@@ -291,6 +295,7 @@ module store_unit
       state_q        <= state_d;
       st_be_q        <= st_be_n;
       st_data_q      <= st_data_n;
+      st_pc_q      <= st_pc_n;
       trans_id_q     <= trans_id_n;
       st_data_size_q <= st_data_size_n;
       amo_op_q       <= amo_op_d;

@@ -75,6 +75,7 @@ module wt_dcache_wbuffer
     output logic miss_nc_o,  // request to I/O space
     output logic [2:0] miss_size_o,  //
     output logic [CACHE_ID_WIDTH-1:0]          miss_id_o,       // ID of this transaction (wbuffer uses all IDs from 0 to DCACHE_MAX_TX-1)
+    output riscv::xlen_t miss_pc_o,
     // write responses from memory
     input logic miss_rtrn_vld_i,
     input logic [CACHE_ID_WIDTH-1:0] miss_rtrn_id_i,  // transaction ID to clear
@@ -196,6 +197,8 @@ module wt_dcache_wbuffer
 
   // is there any dirty word to be transmitted, and is there a free TX slot?
   assign miss_req_o = (|dirty) && free_tx_slots;
+
+  assign miss_pc_o = req_port_i.pc;
 
   // get size of aligned words, and the corresponding byte enables
   // note: openpiton can only handle aligned offsets + size, and hence

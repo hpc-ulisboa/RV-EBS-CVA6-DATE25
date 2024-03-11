@@ -387,13 +387,22 @@ module cva6
   riscv::xlen_t data_csr_perf, data_perf_csr;
   logic                                                                we_csr_perf;
 
-  logic                                                                icache_flush_ctrl_cache;
-  logic                                                                itlb_miss_ex_perf;
-  logic                                                                dtlb_miss_ex_perf;
-  logic                                                                dcache_miss_cache_perf;
-  logic                                                                icache_miss_cache_perf;
-  logic          [                 NumPorts-1:0][DCACHE_SET_ASSOC-1:0] miss_vld_bits;
-  logic                                                                stall_issue;
+  logic                                                     icache_flush_ctrl_cache;
+  logic                                                     itlb_miss_ex_perf;
+  logic                                                     dtlb_miss_ex_perf;
+  logic                                                     dcache_miss_cache_perf;
+  logic                                                     icache_miss_cache_perf;
+  logic             [   NumPorts-1:0][DCACHE_SET_ASSOC-1:0] miss_vld_bits;
+  logic                                                     stall_issue;
+  logic [63:0]                                              cycle_count_csr_perf;
+  logic [63:0]                                              instret_count_csr_perf;
+  logic                                                     ebs_store_req;
+  logic                                                     ebs_store_ack;
+  wt_cache_pkg::dcache_req_t                                ebs_store_data;
+  logic [3:0][4:0]                                          ebs_regfile_addr;
+  logic [3:0][riscv::XLEN-1:0]                              ebs_regfile_data;
+  riscv::xlen_t                                             ebs_addr;
+  riscv::xlen_t                                             pc_dcache_miss_perf;
   // --------------
   // CTRL <-> *
   // --------------
@@ -637,6 +646,8 @@ module cva6
       .commit_ack_i       (commit_ack),
       // Performance Counters
       .stall_issue_o      (stall_issue),
+      .ebs_regfile_addr_i (ebs_regfile_addr),
+      .ebs_regfile_data_o (ebs_regfile_data),
       //RVFI
       .lsu_addr_i         (lsu_addr),
       .lsu_rmask_i        (lsu_rmask),
@@ -860,6 +871,8 @@ module cva6
       .pmpcfg_o              (pmpcfg),
       .pmpaddr_o             (pmpaddr),
       .mcountinhibit_o       (mcountinhibit_csr_perf),
+      .cycle_count_o         (cycle_count_csr_perf),
+      .instret_count_o       (instret_count_csr_perf),
       .debug_req_i,
       .ipi_i,
       .irq_i,
@@ -900,7 +913,17 @@ module cva6
         .miss_vld_bits_i    (miss_vld_bits),
         .i_tlb_flush_i      (flush_tlb_ctrl_ex),
         .stall_issue_i      (stall_issue),
-        .mcountinhibit_i    (mcountinhibit_csr_perf)
+        .cycle_count_i      (cycle_count_csr_perf),
+        .instr_count_i      (instret_count_csr_perf),
+        .pc_i               (pc_commit),
+        .mcountinhibit_i    (mcountinhibit_csr_perf),
+        .ebs_store_req_o    (ebs_store_req),
+        .ebs_store_ack_i    (ebs_store_ack),
+        .ebs_store_data_o   (ebs_store_data),
+        .ebs_regfile_addr_o (ebs_regfile_addr),
+        .ebs_regfile_data_i (ebs_regfile_data),
+        .ebs_addr_o         (ebs_addr),
+        .pc_dcache_miss_perf_i  (pc_dcache_miss_perf)
     );
   end : gen_perf_counter
   else begin : gen_no_perf_counter
@@ -956,7 +979,7 @@ module cva6
   assign dcache_req_to_cache[0] = dcache_req_ports_ex_cache[0];
   assign dcache_req_to_cache[1] = dcache_req_ports_ex_cache[1];
   assign dcache_req_to_cache[2] = dcache_req_ports_acc_cache[0];
-  assign dcache_req_to_cache[3] = dcache_req_ports_ex_cache[2].data_req ? dcache_req_ports_ex_cache [2] :
+  assign dcache_req_to_cache[3] = dcache_req_ports_ex_cache[2].data_req ? dcache_req_ports_ex_cache[2] :
                                                                           dcache_req_ports_acc_cache[1];
 
   // D$ response
@@ -1011,7 +1034,12 @@ module cva6
         .noc_resp_i        (noc_resp_i),
         .inval_addr_i      (inval_addr),
         .inval_valid_i     (inval_valid),
-        .inval_ready_o     (inval_ready)
+        .inval_ready_o     (inval_ready),
+        .ebs_store_req_i   (ebs_store_req),
+        .ebs_store_ack_o   (ebs_store_ack),
+        .ebs_store_data_i  (ebs_store_data),
+        .ebs_addr_i        (ebs_addr),
+        .pc_dcache_miss_perf_o  (pc_dcache_miss_perf)
     );
   end else if (DCACHE_TYPE == int'(config_pkg::HPDCACHE)) begin : gen_cache_hpd
     cva6_hpdcache_subsystem #(

@@ -177,6 +177,7 @@ module load_unit
                                               ariane_pkg::DCACHE_INDEX_WIDTH];
   // request id = index of the load buffer's entry
   assign req_port_o.data_id = ldbuf_windex;
+  assign req_port_o.pc = lsu_ctrl_i.pc;
   // directly forward exception fields (valid bit is set below)
   assign ex_o.cause = ex_i.cause;
   assign ex_o.tval = ex_i.tval;
